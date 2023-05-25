@@ -1,0 +1,14 @@
+[package]
+name = "restbl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crc = "3.0.1"
+memoffset = "0.9.0"
+sa = "2.0.0"
+thiserror-no-std = "2.0.2"
+
+[features]
+alloc = []
+std = ["alloc", "thiserror-no-std/std"]
