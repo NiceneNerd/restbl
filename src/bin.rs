@@ -7,14 +7,15 @@ use memoffset::offset_of;
 use sa::static_assert;
 
 use crate::{
-    util::{hash_name, read_u32, String},
+    util::{hash_name, read_u32, Name},
     Error, Result, TableIndex,
 };
 
 const MAGIC: &[u8] = b"RESTBL";
 
 #[repr(C)]
-struct Header {
+#[derive(Debug, Clone, Copy)]
+pub struct Header {
     version: u32,
     string_block_size: u32,
     crc_table_count: u32,
@@ -25,9 +26,29 @@ static_assert!(Header::FULL_SIZE == 0x16);
 impl Header {
     const FULL_SIZE: usize = size_of::<Header>() + MAGIC.len();
 
+    #[inline(always)]
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
+    #[inline(always)]
+    pub fn string_block_size(&self) -> u32 {
+        self.string_block_size
+    }
+
+    #[inline(always)]
+    pub fn crc_table_count(&self) -> u32 {
+        self.crc_table_count
+    }
+
+    #[inline(always)]
+    pub fn name_table_count(&self) -> u32 {
+        self.name_table_count
+    }
+
     fn read(data: &[u8]) -> Result<Self> {
         if data.len() < Self::FULL_SIZE {
-            Err(Error::InsufficientData("0x16 bytes for header"))
+            Err(Error::InsufficientData(data.len(), "0x16 bytes for header"))
         } else if &data[..MAGIC.len()] != MAGIC {
             Err(Error::InvalidMagic(
                 data[..MAGIC.len()]
@@ -44,9 +65,18 @@ impl Header {
             })
         }
     }
+
+    fn write(self, buffer: &mut [u8]) {
+        buffer[..MAGIC.len()].copy_from_slice(MAGIC);
+        buffer[MAGIC.len()..Self::FULL_SIZE].copy_from_slice(
+            unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
+                .as_slice(),
+        )
+    }
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct HashEntry {
     hash: u32,
     value: u32,
@@ -54,9 +84,12 @@ pub struct HashEntry {
 static_assert!(size_of::<HashEntry>() == 0x8);
 
 impl HashEntry {
-    pub fn read(buffer: &[u8]) -> Result<Self> {
+    fn read(buffer: &[u8]) -> Result<Self> {
         if buffer.len() < size_of::<HashEntry>() {
-            Err(Error::InsufficientData("8 bytes for HashEntry"))
+            Err(Error::InsufficientData(
+                buffer.len(),
+                "8 bytes for HashEntry",
+            ))
         } else {
             Ok(Self {
                 hash: read_u32(buffer, None)?,
@@ -64,25 +97,63 @@ impl HashEntry {
             })
         }
     }
+
+    fn write(self, buffer: &mut [u8]) {
+        buffer[..size_of::<Self>()].copy_from_slice(
+            unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
+                .as_slice(),
+        );
+    }
+
+    #[inline(always)]
+    pub fn hash(&self) -> u32 {
+        self.hash
+    }
+
+    #[inline(always)]
+    pub fn value(&self) -> u32 {
+        self.value
+    }
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct NameEntry {
-    name: String,
+    name: Name,
     value: u32,
 }
 static_assert!(size_of::<NameEntry>() == 0xa4);
 
 impl NameEntry {
-    pub fn read(buffer: &[u8]) -> Result<Self> {
+    fn read(buffer: &[u8]) -> Result<Self> {
         if buffer.len() < size_of::<NameEntry>() {
-            Err(Error::InsufficientData("0x4a bytes for NameEntry"))
+            Err(Error::InsufficientData(
+                buffer.len(),
+                "0x4a bytes for NameEntry",
+            ))
         } else {
             Ok(Self {
-                name: String::try_from(&buffer[..160])?,
+                name: Name::try_from(&buffer[..160])?,
                 value: read_u32(buffer, Some(160))?,
             })
         }
+    }
+
+    fn write(self, buffer: &mut [u8]) {
+        buffer[..size_of::<Self>()].copy_from_slice(
+            unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
+                .as_slice(),
+        );
+    }
+
+    #[inline(always)]
+    pub fn name(&self) -> Name {
+        self.name
+    }
+
+    #[inline(always)]
+    pub fn value(&self) -> u32 {
+        self.value
     }
 }
 
@@ -116,12 +187,18 @@ impl<'a> Iterator for ResTblIterator<'a> {
             self.index += 1;
             Some(TableEntry::Hash(entry))
         } else {
-            let data = &self.table.data[self.table.name_table_offset()
-                + self.index * size_of::<NameEntry>()
-                ..size_of::<NameEntry>()];
-            let entry = NameEntry::read(data).ok();
-            self.index += 1;
-            entry.map(TableEntry::Name)
+            let start = self.table.name_table_offset()
+                + (self.index - self.table.header.crc_table_count as usize)
+                    * size_of::<NameEntry>();
+            let end = start + size_of::<NameEntry>();
+            if end >= self.table.data.len() {
+                None
+            } else {
+                let data = &self.table.data[start..start + size_of::<NameEntry>()];
+                let entry = NameEntry::read(data).ok();
+                self.index += 1;
+                entry.map(TableEntry::Name)
+            }
         }
     }
 }
@@ -145,6 +222,11 @@ impl<'a> ResTblReader<'a> {
             }
         }
         inner(data.into())
+    }
+
+    #[inline(always)]
+    pub fn header(&self) -> &Header {
+        &self.header
     }
 
     /// SAFETY: This involves two unsafe operations, `core::mem::transmute` and
@@ -216,7 +298,7 @@ impl<'a> ResTblReader<'a> {
         let mut start = 0;
         let mut end = self.header.name_table_count as usize;
         while start < end {
-            let mid = (start / end) / 2;
+            let mid = (start + end) / 2;
             let entry = self.parse_name_entry(NameTableIndex(mid)).ok()?;
             match entry.name.partial_cmp(&name) {
                 Some(core::cmp::Ordering::Less) => {
@@ -263,5 +345,69 @@ impl<'a> ResTblReader<'a> {
     #[inline(always)]
     fn hash_table_index(&self, index: usize) -> Option<HashTableIndex> {
         (index < self.header.crc_table_count as usize).then_some(HashTableIndex(index))
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl super::ResourceSizeTable {
+    pub fn to_binary(&self) -> alloc::vec::Vec<u8> {
+        let size = Header::FULL_SIZE
+            + size_of::<HashEntry>() * self.crc_table.len()
+            + size_of::<NameEntry>() * self.name_table.len();
+        let mut buffer = alloc::vec![0u8; size];
+        Header {
+            version: 1,
+            string_block_size: size_of::<Name>() as u32,
+            crc_table_count: self.crc_table.len() as u32,
+            name_table_count: self.name_table.len() as u32,
+        }
+        .write(&mut buffer);
+        let mut pos = Header::FULL_SIZE;
+        for (hash, value) in &self.crc_table {
+            HashEntry {
+                hash: *hash,
+                value: *value,
+            }
+            .write(&mut buffer[pos..]);
+            pos += size_of::<HashEntry>();
+        }
+        for (name, value) in &self.name_table {
+            NameEntry {
+                name: *name,
+                value: *value,
+            }
+            .write(&mut buffer[pos..]);
+            pos += size_of::<NameEntry>();
+        }
+        buffer
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test::DATA;
+
+    #[test]
+    fn parse() {
+        let parser = super::ResTblReader::new(DATA).unwrap();
+        dbg!(parser.header());
+    }
+
+    #[test]
+    fn lookup() {
+        let parser = super::ResTblReader::new(DATA).unwrap();
+        let entry = parser
+            .get("Cooking/CookingTable.game__cooking__Table.bgyml")
+            .unwrap();
+        dbg!(entry);
+        assert!(parser.get("Pack/Actor/Nonexistent.pack").is_none());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn serialize() {
+        let table = crate::ResourceSizeTable::from_binary(DATA).unwrap();
+        let bytes = table.to_binary();
+        assert_eq!(DATA, bytes)
     }
 }

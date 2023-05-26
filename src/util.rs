@@ -1,8 +1,16 @@
-pub struct String {
+#[derive(Clone, Copy)]
+pub struct Name {
     inner: [u8; 160],
 }
 
-impl core::fmt::Debug for String {
+impl core::ops::Deref for Name {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl core::fmt::Debug for Name {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("String")
             .field("length", &self.as_str().len())
@@ -11,57 +19,57 @@ impl core::fmt::Debug for String {
     }
 }
 
-impl core::fmt::Display for String {
+impl core::fmt::Display for Name {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
-impl PartialEq for String {
+impl PartialEq for Name {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
 }
 
-impl PartialEq<&str> for String {
+impl PartialEq<&str> for Name {
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
     }
 }
 
-impl PartialEq<&str> for &String {
+impl PartialEq<&str> for &Name {
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
     }
 }
 
-impl Eq for String {}
+impl Eq for Name {}
 
-impl PartialOrd for String {
+impl PartialOrd for Name {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.as_str().partial_cmp(other.as_str())
     }
 }
 
-impl Ord for String {
+impl Ord for Name {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.as_str().cmp(other.as_str())
     }
 }
 
-impl PartialOrd<&str> for String {
+impl PartialOrd<&str> for Name {
     fn partial_cmp(&self, other: &&str) -> Option<core::cmp::Ordering> {
         self.as_str().partial_cmp(*other)
     }
 }
 
-impl PartialOrd<&str> for &String {
+impl PartialOrd<&str> for &Name {
     fn partial_cmp(&self, other: &&str) -> Option<core::cmp::Ordering> {
         self.as_str().partial_cmp(*other)
     }
 }
 
-impl String {
+impl Name {
     #[inline(always)]
     pub fn as_str(&self) -> &str {
         unsafe {
@@ -71,14 +79,14 @@ impl String {
     }
 }
 
-impl AsRef<str> for String {
+impl AsRef<str> for Name {
     #[inline(always)]
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl TryFrom<&[u8]> for String {
+impl TryFrom<&[u8]> for Name {
     type Error = crate::Error;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
@@ -99,14 +107,14 @@ impl TryFrom<&[u8]> for String {
 pub(crate) fn read_u32(value: &[u8], offset: Option<usize>) -> crate::Result<u32> {
     let offset = offset.unwrap_or_default();
     if value.len() < 4 + offset {
-        Err(crate::Error::InsufficientData("4 bytes for u32"))
+        Err(crate::Error::InsufficientData(
+            value.len() - offset,
+            "4 bytes for u32",
+        ))
     } else {
-        Ok(u32::from_le_bytes([
-            value[offset],
-            value[1 + offset],
-            value[2 + offset],
-            value[3 + offset],
-        ]))
+        Ok(u32::from_le_bytes(unsafe {
+            value[offset..offset + 4].try_into().unwrap_unchecked()
+        }))
     }
 }
 
