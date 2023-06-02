@@ -33,6 +33,12 @@ pub enum Error {
     #[cfg(feature = "std")]
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+    #[cfg(all(feature = "alloc", feature = "yaml"))]
+    #[error("Invalid YAML line: {0}")]
+    YamlError(alloc::string::String),
+    #[cfg(feature = "yaml")]
+    #[error("Invalid number in YAML line: {0}")]
+    YamlInvalidNumber(#[from] core::num::ParseIntError),
 }
 
 #[derive(Debug)]
@@ -92,6 +98,7 @@ impl From<alloc::string::String> for TableIndex<'_> {
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct ResourceSizeTable {
     pub crc_table: BTreeMap<u32, u32>,
     pub name_table: BTreeMap<Name, u32>,
@@ -99,6 +106,25 @@ pub struct ResourceSizeTable {
 
 #[cfg(feature = "alloc")]
 impl ResourceSizeTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_parser(parser: &bin::ResTblReader<'_>) -> Self {
+        let mut crc_table = BTreeMap::new();
+        let mut name_table = BTreeMap::new();
+        for entry in parser.iter() {
+            match entry {
+                bin::TableEntry::Hash(entry) => crc_table.insert(entry.hash(), entry.value()),
+                bin::TableEntry::Name(entry) => name_table.insert(entry.name(), entry.value()),
+            };
+        }
+        ResourceSizeTable {
+            crc_table,
+            name_table,
+        }
+    }
+
     pub fn from_binary(data: impl AsRef<[u8]>) -> Result<Self> {
         fn inner(data: &[u8]) -> Result<ResourceSizeTable> {
             let parser = bin::ResTblReader::new(data)?;

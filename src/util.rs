@@ -1,3 +1,5 @@
+#[cfg_attr(feature = "serde", derive(serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(from = "&str"))]
 #[derive(Clone, Copy)]
 pub struct Name {
     inner: [u8; 160],
@@ -86,6 +88,15 @@ impl AsRef<str> for Name {
     }
 }
 
+impl From<&str> for Name {
+    fn from(value: &str) -> Self {
+        let mut inner: [u8; 160] = unsafe { core::mem::zeroed() };
+        let len = value.len().min(160);
+        inner[..len].copy_from_slice(value.as_bytes());
+        Self { inner }
+    }
+}
+
 impl TryFrom<&[u8]> for Name {
     type Error = crate::Error;
 
@@ -101,6 +112,16 @@ impl TryFrom<&[u8]> for Name {
             }
         }
         Ok(core::str::from_utf8(&inner[..len]).map(|_| Self { inner })?)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Name {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.as_str().serialize(serializer)
     }
 }
 

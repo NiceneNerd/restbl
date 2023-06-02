@@ -86,6 +86,53 @@ impl bin::ResTblReader<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
+impl super::ResourceSizeTable {
+    pub fn to_text(&self) -> alloc::string::String {
+        self.crc_table
+            .iter()
+            .map(|(k, v)| alloc::format!("{k}: {v}\n"))
+            .chain(
+                self.name_table
+                    .iter()
+                    .map(|(k, v)| alloc::format!("{k}: {v}\n")),
+            )
+            .collect()
+    }
+
+    pub fn from_text(text: impl AsRef<str>) -> Result<Self> {
+        fn inner(text: &str) -> Result<ResourceSizeTable> {
+            let mut table = ResourceSizeTable::default();
+            for line in text.lines() {
+                let mut split = line.split(": ");
+                let key = split.next().ok_or_else(|| Error::YamlError(line.into()))?;
+                let value = split
+                    .next()
+                    .ok_or_else(|| Error::YamlError(line.into()))?
+                    .parse::<u32>()?;
+                match key.parse::<u32>() {
+                    Ok(hash) => {
+                        table.crc_table.insert(hash, value);
+                    }
+                    Err(_) => {
+                        let hash = util::hash_name(key);
+                        match table.crc_table.entry(hash) {
+                            alloc::collections::btree_map::Entry::Occupied(_) => {
+                                table.name_table.insert(key.into(), value);
+                            }
+                            alloc::collections::btree_map::Entry::Vacant(entry) => {
+                                entry.insert(value);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(table)
+        }
+        inner(text.as_ref())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::test::DATA;
@@ -107,6 +154,7 @@ mod test {
         parser.write_text(&mut buffer).unwrap();
         let text = String::from_utf8(buffer).unwrap();
         println!("{text}");
+        std::fs::write("test/ResourceSizeTable.Product.110.yml", text).unwrap();
     }
 
     #[test]

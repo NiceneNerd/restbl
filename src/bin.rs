@@ -66,7 +66,7 @@ impl Header {
         }
     }
 
-    fn write(self, buffer: &mut [u8]) {
+    pub fn write(self, buffer: &mut [u8]) {
         buffer[..MAGIC.len()].copy_from_slice(MAGIC);
         buffer[MAGIC.len()..Self::FULL_SIZE].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
@@ -84,7 +84,7 @@ pub struct HashEntry {
 static_assert!(size_of::<HashEntry>() == 0x8);
 
 impl HashEntry {
-    fn read(buffer: &[u8]) -> Result<Self> {
+    pub fn read(buffer: &[u8]) -> Result<Self> {
         if buffer.len() < size_of::<HashEntry>() {
             Err(Error::InsufficientData(
                 buffer.len(),
@@ -98,7 +98,7 @@ impl HashEntry {
         }
     }
 
-    fn write(self, buffer: &mut [u8]) {
+    pub fn write(self, buffer: &mut [u8]) {
         buffer[..size_of::<Self>()].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
                 .as_slice(),
@@ -125,7 +125,7 @@ pub struct NameEntry {
 static_assert!(size_of::<NameEntry>() == 0xa4);
 
 impl NameEntry {
-    fn read(buffer: &[u8]) -> Result<Self> {
+    pub fn read(buffer: &[u8]) -> Result<Self> {
         if buffer.len() < size_of::<NameEntry>() {
             Err(Error::InsufficientData(
                 buffer.len(),
@@ -139,7 +139,7 @@ impl NameEntry {
         }
     }
 
-    fn write(self, buffer: &mut [u8]) {
+    pub fn write(self, buffer: &mut [u8]) {
         buffer[..size_of::<Self>()].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
                 .as_slice(),
@@ -191,7 +191,7 @@ impl<'a> Iterator for ResTblIterator<'a> {
                 + (self.index - self.table.header.crc_table_count as usize)
                     * size_of::<NameEntry>();
             let end = start + size_of::<NameEntry>();
-            if end >= self.table.data.len() {
+            if end > self.table.data.len() {
                 None
             } else {
                 let data = &self.table.data[start..start + size_of::<NameEntry>()];
@@ -391,6 +391,18 @@ mod test {
     fn parse() {
         let parser = super::ResTblReader::new(DATA).unwrap();
         dbg!(parser.header());
+        #[cfg(feature = "alloc")]
+        {
+            let table = crate::ResourceSizeTable::from_parser(&parser);
+            assert_eq!(
+                parser.header.crc_table_count as usize,
+                table.crc_table.len(),
+            );
+            assert_eq!(
+                parser.header.name_table_count as usize,
+                table.name_table.len(),
+            );
+        }
     }
 
     #[test]
@@ -408,6 +420,15 @@ mod test {
     fn serialize() {
         let table = crate::ResourceSizeTable::from_binary(DATA).unwrap();
         let bytes = table.to_binary();
-        assert_eq!(DATA, bytes)
+        let table2 = crate::ResourceSizeTable::from_binary(&bytes).unwrap();
+        assert_eq!(table.crc_table.len(), table2.crc_table.len());
+        for (entry1, entry2) in table.crc_table.iter().zip(table2.crc_table.iter()) {
+            assert_eq!(entry1, entry2);
+        }
+        assert_eq!(table.name_table.len(), table2.name_table.len());
+        for (entry1, entry2) in table.name_table.iter().zip(table2.name_table.iter()) {
+            assert_eq!(entry1, entry2);
+        }
+        assert_eq!(DATA, bytes);
     }
 }
