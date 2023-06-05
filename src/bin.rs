@@ -11,8 +11,10 @@ use crate::{
     Error, Result, TableIndex,
 };
 
-const MAGIC: &[u8] = b"RESTBL";
+/// Constant representing the magic of an RESTBL file
+pub const MAGIC: &[u8] = b"RESTBL";
 
+/// Represents an RESTBL header, without the magic
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Header {
@@ -46,6 +48,7 @@ impl Header {
         self.name_table_count
     }
 
+    /// Attempt to parse the RESTBL header from a slice
     fn read(data: &[u8]) -> Result<Self> {
         if data.len() < Self::FULL_SIZE {
             Err(Error::InsufficientData(data.len(), "0x16 bytes for header"))
@@ -66,6 +69,7 @@ impl Header {
         }
     }
 
+    /// Attempt to serialize the RESTBL header to a writer
     pub fn write(self, buffer: &mut [u8]) {
         buffer[..MAGIC.len()].copy_from_slice(MAGIC);
         buffer[MAGIC.len()..Self::FULL_SIZE].copy_from_slice(
@@ -75,8 +79,9 @@ impl Header {
     }
 }
 
+/// Represents a RESTBL hash entry
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HashEntry {
     hash: u32,
     value: u32,
@@ -84,6 +89,7 @@ pub struct HashEntry {
 static_assert!(size_of::<HashEntry>() == 0x8);
 
 impl HashEntry {
+    /// Attempt to parse a RESTBL hash entry from a slice
     pub fn read(buffer: &[u8]) -> Result<Self> {
         if buffer.len() < size_of::<HashEntry>() {
             Err(Error::InsufficientData(
@@ -98,6 +104,7 @@ impl HashEntry {
         }
     }
 
+    /// Attempt to serialize a RESTBL hash entry to a writer
     pub fn write(self, buffer: &mut [u8]) {
         buffer[..size_of::<Self>()].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
@@ -116,8 +123,9 @@ impl HashEntry {
     }
 }
 
+/// Represents a RESTBL name entry
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NameEntry {
     name: Name,
     value: u32,
@@ -125,6 +133,7 @@ pub struct NameEntry {
 static_assert!(size_of::<NameEntry>() == 0xa4);
 
 impl NameEntry {
+    /// Attempt to parse a RESTBL name entry from a slice
     pub fn read(buffer: &[u8]) -> Result<Self> {
         if buffer.len() < size_of::<NameEntry>() {
             Err(Error::InsufficientData(
@@ -139,6 +148,7 @@ impl NameEntry {
         }
     }
 
+    /// Attempt to serialize a RESTBL name entry to a writer
     pub fn write(self, buffer: &mut [u8]) {
         buffer[..size_of::<Self>()].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
@@ -157,6 +167,7 @@ impl NameEntry {
     }
 }
 
+/// An extremely fast, non-allocating reader to parse an RSTB file
 pub struct ResTblReader<'a> {
     #[cfg(feature = "alloc")]
     data: Cow<'a, [u8]>,
@@ -165,6 +176,7 @@ pub struct ResTblReader<'a> {
     header: Header,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TableEntry {
     Hash(HashEntry),
     Name(NameEntry),
@@ -173,6 +185,7 @@ pub enum TableEntry {
 struct HashTableIndex(usize);
 struct NameTableIndex(usize);
 
+/// Struct to iterate over RSTB entries
 pub struct ResTblIterator<'a> {
     table: &'a ResTblReader<'a>,
     index: usize,
@@ -209,6 +222,7 @@ type Buffer<'a> = alloc::borrow::Cow<'a, [u8]>;
 type Buffer<'a> = &'a [u8];
 
 impl<'a> ResTblReader<'a> {
+    /// Construct a new RSTB parser
     pub fn new<D: Into<Buffer<'a>>>(data: D) -> Result<Self> {
         fn inner(data: Buffer<'_>) -> Result<ResTblReader<'_>> {
             let header = Header::read(&data[..Header::FULL_SIZE])?;
@@ -254,6 +268,8 @@ impl<'a> ResTblReader<'a> {
         }
     }
 
+    /// Returns the RSTB value for the specified hash or resource name if present.
+    /// Checks the name table first (if applicable) and then the hash table.
     pub fn get<'i, I: Into<TableIndex<'i>>>(&self, needle: I) -> Option<u32> {
         fn inner(tbl: &ResTblReader, needle: TableIndex) -> Option<u32> {
             match needle {
@@ -314,6 +330,8 @@ impl<'a> ResTblReader<'a> {
         None
     }
 
+    /// Returns the RSTB entry for the specified hash or resource name if present.
+    /// Checks the name table first (if applicable) and then the hash table.
     pub fn get_entry<'i, I: Into<TableIndex<'i>>>(&self, needle: I) -> Option<TableEntry> {
         fn inner(tbl: &ResTblReader, needle: TableIndex) -> Option<TableEntry> {
             match needle {
@@ -330,6 +348,7 @@ impl<'a> ResTblReader<'a> {
         inner(self, needle.into())
     }
 
+    /// Gets an interator over all RSTB entries across both the CRC and name tables.
     pub fn iter(&self) -> ResTblIterator<'_> {
         ResTblIterator {
             table: self,

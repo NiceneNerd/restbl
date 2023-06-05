@@ -16,8 +16,10 @@ pub use bin::ResTblReader;
 use thiserror_no_std::Error;
 use util::Name;
 
+/// Result type for this create
 pub type Result<T> = core::result::Result<T, Error>;
 
+/// Error type for this crate
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Insufficient data: found {0} bytes, expected {1}")]
@@ -41,6 +43,7 @@ pub enum Error {
     YamlInvalidNumber(#[from] core::num::ParseIntError),
 }
 
+/// Represents an index into the RSTB, which can be a canonical resource path or its hash
 #[derive(Debug)]
 pub enum TableIndex<'a> {
     HashIndex(u32),
@@ -96,6 +99,10 @@ impl From<alloc::string::String> for TableIndex<'_> {
     }
 }
 
+/// Data structure representing Tears of the Kingdom's resource size table
+/// (`ResourceSizeTable.Product.rsizetable.zs`). Requires the `alloc` feature.
+/// Can be serialized or deserialized to binary or (with the `text` feature)
+/// a YAML document.
 #[cfg(feature = "alloc")]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -106,10 +113,12 @@ pub struct ResourceSizeTable {
 
 #[cfg(feature = "alloc")]
 impl ResourceSizeTable {
+    /// Construct an empty table
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Construct an owned table from a fast readonly parser
     pub fn from_parser(parser: &bin::ResTblReader<'_>) -> Self {
         let mut crc_table = BTreeMap::new();
         let mut name_table = BTreeMap::new();
@@ -125,6 +134,7 @@ impl ResourceSizeTable {
         }
     }
 
+    /// Parse an owned table from binary form
     pub fn from_binary(data: impl AsRef<[u8]>) -> Result<Self> {
         fn inner(data: &[u8]) -> Result<ResourceSizeTable> {
             let parser = bin::ResTblReader::new(data)?;
