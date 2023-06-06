@@ -1,3 +1,9 @@
+//! A simple library to handle RSTB/RESTBL (resource size table) files from *The
+//! Legend of Zelda: Tears of the Kingdom. Features:
+//! - Quick, zero-allocation parser
+//! - Optional `alloc` feature to support editable table which can be serialized
+//!   to binary or (with the `yaml` feature) YAML.
+//! - `no_std` support
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
 #[cfg(feature = "alloc")]
 extern crate alloc;
