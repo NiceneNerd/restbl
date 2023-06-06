@@ -1,14 +1,17 @@
+//! # restbl
+//!
 //! A simple library to handle RSTB/RESTBL (resource size table) files from *The
 //! Legend of Zelda: Tears of the Kingdom. Features:
 //! - Quick, zero-allocation parser
-//! - Optional `alloc` feature to support editable table which can be serialized
-//!   to binary or (with the `yaml` feature) YAML.
+//! - Optional `alloc` feature to support editable table which can be serialized to
+//!   binary or (with the `yaml` feature) YAML.
 //! - `no_std` support (optional `std` feature)
 //! - optional Serde support (`serde` feature)
+//! - `aarch64-nintendo-switch-freestanding` support (without the `std` feature)
 //!
 //! ## Example Usage
 //!
-//! ```
+//! ```rust
 //! use restbl::bin::ResTblReader;
 //!
 //! let bytes = std::fs::read("test/ResourceSizeTable.Product.110.rsizetable").unwrap();
@@ -43,9 +46,21 @@
 //! }
 //! ```
 //!
+//! ## Building for Switch
+//!
+//! To build for Switch, you will need to use the
+//! `aarch64-nintendo-switch-freestanding` target. The `std` feature is not
+//! supported, so you will need to use `--no-default-features`. Since [`cargo
+//! nx`](https://github.com/aarch64-switch-rs/cargo-nx) does not seem to support
+//! passing feature flags, you will need to run the full command yourself, as
+//! follows:
+//!
+//! > cargo build -Z build-std=core,compiler_builtins,alloc --target aarch64-nintendo-switch-freestanding --no-default-features
+//!
 //! ## License
 //!
-//! This software is licensed under the terms of the GNU General Public License, version 3 or later.
+//! This software is licensed under the terms of the GNU General Public License,
+//! version 3 or later.
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
 #[cfg(feature = "alloc")]
 extern crate alloc;
