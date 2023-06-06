@@ -1,7 +1,7 @@
 # restbl
 
 A simple library to handle RSTB/RESTBL (resource size table) files from *The
-Legend of Zelda: Tears of the Kingdom. Features:
+Legend of Zelda: Tears of the Kingdom*. Features:
 - Quick, zero-allocation parser
 - Optional `alloc` feature to support editable table which can be serialized to
   binary or (with the `yaml` feature) YAML.
@@ -55,7 +55,9 @@ nx`](https://github.com/aarch64-switch-rs/cargo-nx) does not seem to support
 passing feature flags, you will need to run the full command yourself, as
 follows:
 
-> cargo build -Z build-std=core,compiler_builtins,alloc --target aarch64-nintendo-switch-freestanding --no-default-features
+```
+cargo build -Z build-std=core,compiler_builtins,alloc --target aarch64-nintendo-switch-freestanding --no-default-features
+```
 
 ## License
 
