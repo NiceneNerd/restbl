@@ -104,7 +104,7 @@ impl HashEntry {
         }
     }
 
-    /// Attempt to serialize a RESTBL hash entry to a writer
+    /// Serialize a RESTBL hash entry to a buffer
     pub fn write(self, buffer: &mut [u8]) {
         buffer[..size_of::<Self>()].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
@@ -148,7 +148,7 @@ impl NameEntry {
         }
     }
 
-    /// Attempt to serialize a RESTBL name entry to a writer
+    /// Serialize a RESTBL name entry to a buffer
     pub fn write(self, buffer: &mut [u8]) {
         buffer[..size_of::<Self>()].copy_from_slice(
             unsafe { core::mem::transmute::<Self, [u8; core::mem::size_of::<Self>()]>(self) }
@@ -243,6 +243,17 @@ impl<'a> ResTblReader<'a> {
         &self.header
     }
 
+    /// Get the total number of hash and name entries in the table
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        (self.header.crc_table_count + self.header.name_table_count) as usize
+    }
+
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// SAFETY: This involves two unsafe operations, `core::mem::transmute` and
     /// unchecked slice-to-array. They are perfectly sound, however. The slice
     /// conversion is sound because the size of the slice and the size of the
@@ -266,6 +277,23 @@ impl<'a> ResTblReader<'a> {
                     .unwrap_unchecked(),
             )
         }
+    }
+
+    /// Check if the specified hash or resource name is present in the table.
+    /// Checks the name table first (if applicable) and then the hash table.
+    pub fn contains<'i, I: Into<TableIndex<'i>>>(&self, needle: I) -> bool {
+        fn inner(tbl: &ResTblReader, needle: TableIndex) -> bool {
+            match needle {
+                TableIndex::HashIndex(hash) => tbl.find_hash_entry(hash).is_some(),
+                TableIndex::StringIndex(name) => {
+                    tbl.find_name_entry(&name).map(|e| e.value).is_some() || {
+                        let hash = hash_name(&name);
+                        tbl.find_hash_entry(hash).map(|e| e.value).is_some()
+                    }
+                }
+            }
+        }
+        inner(self, needle.into())
     }
 
     /// Returns the RSTB value for the specified hash or resource name if present.
@@ -348,7 +376,7 @@ impl<'a> ResTblReader<'a> {
         inner(self, needle.into())
     }
 
-    /// Gets an interator over all RSTB entries across both the CRC and name tables.
+    /// Iterate all RSTB entries across both the hash and name tables.
     pub fn iter(&self) -> ResTblIterator<'_> {
         ResTblIterator {
             table: self,
@@ -369,6 +397,27 @@ impl<'a> ResTblReader<'a> {
 
 #[cfg(feature = "alloc")]
 impl super::ResourceSizeTable {
+    /// Parse an owned table from binary form
+    pub fn from_binary(data: impl AsRef<[u8]>) -> Result<Self> {
+        fn inner(data: &[u8]) -> Result<super::ResourceSizeTable> {
+            let parser = ResTblReader::new(data)?;
+            let mut crc_table = alloc::collections::BTreeMap::new();
+            let mut name_table = alloc::collections::BTreeMap::new();
+            for entry in parser.iter() {
+                match entry {
+                    TableEntry::Hash(entry) => crc_table.insert(entry.hash(), entry.value()),
+                    TableEntry::Name(entry) => name_table.insert(entry.name(), entry.value()),
+                };
+            }
+            Ok(super::ResourceSizeTable {
+                crc_table,
+                name_table,
+            })
+        }
+        inner(data.as_ref())
+    }
+
+    /// Write the table in its binary format to bytes.
     pub fn to_binary(&self) -> alloc::vec::Vec<u8> {
         let size = Header::FULL_SIZE
             + size_of::<HashEntry>() * self.crc_table.len()
